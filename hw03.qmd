@@ -17,7 +17,7 @@ knitr::opts_chunk$set(echo = TRUE, eval = TRUE, warning = FALSE, message = FALSE
 options(knitr.table.format = "html")
 library(reticulate)
 # reticulate::use_condaenv(condaenv = "introds", conda = "/opt/homebrew/bin/conda") # for persistency
-#reticulate::use_condaenv(condaenv = "introds", conda = "/opt/anaconda3/condabin/conda")
+# reticulate::use_condaenv(condaenv = "introds", conda = "/opt/anaconda3/condabin/conda")
 ```
 
 ## 지시사항
@@ -886,8 +886,7 @@ Teams = (
     .rename({
         "R": "RS",
         "2B": "X2B",
-        "3B": "X3B",
-        "IPOuts": "IPouts"
+        "3B": "X3B"
     })
 )
 
@@ -908,7 +907,7 @@ TeamRuns_full = (
         "W", "L", "WPct",
         "logRS", "logRA",
         "H", "X2B", "X3B", "HR", "BB", "SO", "CS", "HBP", "SF",
-        "ERA", "CG", "SHO", "IPouts", "HA", "HRA", "BBA", "SOA",
+        "ERA", "CG", "SHO", "IPOuts", "HA", "HRA", "BBA", "SOA",
         "E", "DP", "FP", "SV"
     ])
     .drop_nulls()
@@ -920,7 +919,7 @@ df_full = TeamRuns_full.to_pandas()
 predictors = [
     "logRS", "logRA",
     "H", "X2B", "X3B", "HR", "BB", "SO", "CS", "HBP", "SF",
-    "ERA", "CG", "SHO", "IPouts", "HA", "HRA", "BBA", "SOA",
+    "ERA", "CG", "SHO", "IPOuts", "HA", "HRA", "BBA", "SOA",
     "E", "DP", "FP", "SV"
 ]
 
@@ -1157,7 +1156,7 @@ model_compare_23
 # Full Poisson model
 predictors = [
     "logRS", "logRA", "H", "X2B", "X3B", "HR", "BB", "SO",
-    "CS", "HBP", "SF", "ERA", "CG", "SHO", "IPouts", "HA",
+    "CS", "HBP", "SF", "ERA", "CG", "SHO", "IPOuts", "HA",
     "HRA", "BBA", "SOA", "E", "DP", "FP", "SV"
 ]
 
