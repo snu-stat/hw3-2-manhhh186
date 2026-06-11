@@ -69,6 +69,14 @@ library(mosaic)
 library(dplyr)
 library(Lahman)
 library(ggplot2)
+library(MASS)
+library(dplyr)
+library(tidyr)
+
+select <- dplyr::select
+filter <- dplyr::filter
+mutate <- dplyr::mutate
+rename <- dplyr::rename
 ```
 
 ## Python
@@ -105,7 +113,7 @@ smoking <- NHANES %>%
         SmokeNow = ifelse(Smoke100 == "No", "No", as.character(SmokeNow)),
         SmokeNow = factor(SmokeNow, levels = c("No", "Yes"))
     ) %>%
-    select(
+    dplyr::select(
         SmokeNow, Age, Gender, Race1, Education, MaritalStatus, HHIncome,
         BMI, PhysActive, AlcoholDay, Diabetes, HealthGen
     ) %>%
@@ -219,7 +227,7 @@ TeamRuns <- Teams %>%
     WPct = W / (W + L),
     run_ratio = RS / RA
   ) %>%
-  select(yearID, teamID, lgID, WPct, run_ratio, RS, RA) %>%
+  dplyr::select(yearID, teamID, lgID, WPct, run_ratio, RS, RA) %>%
   filter(
     !is.na(WPct),
     !is.na(run_ratio),
@@ -867,23 +875,6 @@ model_compare <- data.frame(
 )
 
 model_compare
-
-# Predicted WPct comparison
-TeamRuns_full <- TeamRuns_full %>%
-  mutate(
-    pred_final = predict(final_fit, type = "response")
-  )
-
-ggplot(TeamRuns_full, aes(x = pred_final, y = WPct)) +
-  geom_point(alpha = 0.5) +
-  geom_abline(
-    slope = 1,
-    intercept = 0,
-    linetype = 2,
-    color = "darkgray"
-  ) +
-  xlab("Predicted WPct from final model") +
-  ylab("Observed WPct")
 ```
 
 ## Python
@@ -1102,24 +1093,414 @@ The stepwise AIC procedure selected logRS, logRA, CG, SHO, and SV. The most impo
 :::{.panel-tabset}
 ## R
 ```{r}
+# Full Poisson model
+poisson_full <- glm(
+  W ~ logRS + logRA + H + X2B + X3B + HR + BB + SO +
+    CS + HBP + SF + ERA + CG + SHO + IPouts + HA + HRA +
+    BBA + SOA + E + DP + FP + SV,
+  data = TeamRuns_full,
+  family = poisson
+)
 
+summary(poisson_full)
+
+# Stepwise variable selection by AIC
+poisson_step <- step(
+  poisson_full,
+  direction = "both",
+  trace = TRUE
+)
+
+summary(poisson_step)
+
+# Check whether remaining variables should be kept
+drop1(
+  poisson_step,
+  test = "Chisq"
+)
+
+# Final Poisson model
+poisson_final <- poisson_step
+
+summary(poisson_final)
+confint(poisson_final)
+
+# Selected variables
+names(coef(poisson_final))
+
+# Compare with 2-2 final logistic model
+model_compare_23 <- data.frame(
+  model = c(
+    "2-2 logistic stepwise model",
+    "2-3 Poisson stepwise model"
+  ),
+  AIC = c(
+    AIC(final_fit),
+    AIC(poisson_final)
+  ),
+  residual_deviance = c(
+    deviance(final_fit),
+    deviance(poisson_final)
+  ),
+  residual_df = c(
+    df.residual(final_fit),
+    df.residual(poisson_final)
+  )
+)
+
+model_compare_23
 ```
+
 ## Python
 ```{python}
+# Full Poisson model
+predictors = [
+    "logRS", "logRA", "H", "X2B", "X3B", "HR", "BB", "SO",
+    "CS", "HBP", "SF", "ERA", "CG", "SHO", "IPouts", "HA",
+    "HRA", "BBA", "SOA", "E", "DP", "FP", "SV"
+]
+
+X_full = sm.add_constant(df_full[predictors])
+y_poisson = df_full["W"]
+
+poisson_full = sm.GLM(
+    y_poisson,
+    X_full,
+    family=sm.families.Poisson()
+).fit()
+
+print(poisson_full.summary())
+
+# Stepwise variable selection by AIC
+exec("""
+def fit_poisson(selected_vars):
+    X = sm.add_constant(df_full[selected_vars])
+    model = sm.GLM(
+        y_poisson,
+        X,
+        family=sm.families.Poisson()
+    ).fit()
+    return model
+
+def stepwise_aic_poisson(all_vars):
+    selected = all_vars.copy()
+    current_model = fit_poisson(selected)
+    current_aic = current_model.aic
+
+    changed = True
+
+    while changed:
+        changed = False
+        candidates = []
+
+        for var in selected:
+            trial_vars = [v for v in selected if v != var]
+            trial_model = fit_poisson(trial_vars)
+            candidates.append({
+                "action": "remove",
+                "var": var,
+                "vars": trial_vars,
+                "aic": trial_model.aic,
+                "model": trial_model
+            })
+
+        remaining = [v for v in all_vars if v not in selected]
+
+        for var in remaining:
+            trial_vars = selected + [var]
+            trial_model = fit_poisson(trial_vars)
+            candidates.append({
+                "action": "add",
+                "var": var,
+                "vars": trial_vars,
+                "aic": trial_model.aic,
+                "model": trial_model
+            })
+
+        best = min(candidates, key=lambda x: x["aic"])
+
+        if best["aic"] < current_aic:
+            selected = best["vars"]
+            current_model = best["model"]
+            current_aic = best["aic"]
+            changed = True
+            print(f"{best['action']} {best['var']}: AIC = {current_aic:.4f}")
+
+    return current_model, selected
+""")
+
+poisson_step, selected_poisson_vars = stepwise_aic_poisson(predictors)
+
+print(poisson_step.summary())
+
+# Check whether remaining variables should be kept
+drop1_results = []
+
+for var in selected_poisson_vars:
+    reduced_vars = [v for v in selected_poisson_vars if v != var]
+    reduced_fit = fit_poisson(reduced_vars)
+
+    lrt = reduced_fit.deviance - poisson_step.deviance
+    pval = 1 - chi2.cdf(lrt, df=1)
+
+    drop1_results.append({
+        "variable": var,
+        "reduced_deviance": reduced_fit.deviance,
+        "reduced_AIC": reduced_fit.aic,
+        "LRT": lrt,
+        "p_value": pval
+    })
+
+drop1_table = pd.DataFrame(drop1_results)
+print(drop1_table)
+
+# Final Poisson model
+poisson_final = poisson_step
+
+print(poisson_final.summary())
+print(poisson_final.conf_int())
+
+# Selected variables
+print(["const"] + selected_poisson_vars)
+
+# Compare with 2-2 final logistic model
+model_compare_23 = pd.DataFrame({
+    "model": [
+        "2-2 logistic stepwise model",
+        "2-3 Poisson stepwise model"
+    ],
+    "AIC": [
+        final_fit.aic,
+        poisson_final.aic
+    ],
+    "residual_deviance": [
+        final_fit.deviance,
+        poisson_final.deviance
+    ],
+    "residual_df": [
+        final_fit.df_resid,
+        poisson_final.df_resid
+    ]
+})
+
+print(model_compare_23)
 ```
 :::
+
+Stepwise AIC selected logRS, ERA, CG, E, and SV. Among these variables, logRS, ERA, and SV are highly significant (p<0.001), while CG and E are not significant at the 5% level. However, removing either variable slightly increases the AIC, so both were retained in the final model.
+
+Compared with Question 2-2, the logistic model selected logRS, logRA, CG, SHO, and SV, whereas the Poisson model selected logRS, ERA, CG, E, and SV. Both models identify logRS, CG, and SV as important predictors, indicating that offensive production and pitching performance are strongly associated with team success. 
+
 
 #### 2-3.2
 
 :::{.panel-tabset}
 ## R
 ```{r}
+# Full negative binomial model
+nb_full <- glm.nb(
+  W ~ logRS + logRA + H + X2B + X3B + HR + BB + SO +
+    CS + HBP + SF + ERA + CG + SHO + IPouts + HA + HRA +
+    BBA + SOA + E + DP + FP + SV,
+  data = TeamRuns_full
+)
 
+summary(nb_full)
+
+# Stepwise variable selection by AIC
+nb_step <- step(
+  nb_full,
+  direction = "both",
+  trace = TRUE
+)
+
+summary(nb_step)
+
+# Check whether remaining variables should be kept
+drop1(
+  nb_step,
+  test = "Chisq"
+)
+
+# Final negative binomial model
+nb_final <- nb_step
+
+summary(nb_final)
+confint(nb_final)
+
+# Selected variables
+names(coef(nb_final))
+
+# Compare with Poisson and logistic models
+model_compare_232 <- data.frame(
+  model = c(
+    "2-2 logistic stepwise model",
+    "2-3.1 Poisson stepwise model",
+    "2-3.2 Negative binomial stepwise model"
+  ),
+  AIC = c(
+    AIC(final_fit),
+    AIC(poisson_final),
+    AIC(nb_final)
+  ),
+  residual_deviance = c(
+    deviance(final_fit),
+    deviance(poisson_final),
+    deviance(nb_final)
+  ),
+  residual_df = c(
+    df.residual(final_fit),
+    df.residual(poisson_final),
+    df.residual(nb_final)
+  )
+)
+
+model_compare_232
 ```
+
 ## Python
 ```{python}
+# Full negative binomial model
+X_full = sm.add_constant(df_full[predictors])
+y_nb = df_full["W"]
+
+nb_full = sm.GLM(
+    y_nb,
+    X_full,
+    family=sm.families.NegativeBinomial()
+).fit()
+
+print(nb_full.summary())
+
+# Stepwise variable selection by AIC
+exec("""
+def fit_nb(selected_vars):
+    X = sm.add_constant(df_full[selected_vars])
+    model = sm.GLM(
+        y_nb,
+        X,
+        family=sm.families.NegativeBinomial()
+    ).fit()
+    return model
+
+def stepwise_aic_nb(all_vars):
+    selected = all_vars.copy()
+    current_model = fit_nb(selected)
+    current_aic = current_model.aic
+
+    changed = True
+
+    while changed:
+        changed = False
+        candidates = []
+
+        for var in selected:
+            trial_vars = [v for v in selected if v != var]
+            trial_model = fit_nb(trial_vars)
+            candidates.append({
+                "action": "remove",
+                "var": var,
+                "vars": trial_vars,
+                "aic": trial_model.aic,
+                "model": trial_model
+            })
+
+        remaining = [v for v in all_vars if v not in selected]
+
+        for var in remaining:
+            trial_vars = selected + [var]
+            trial_model = fit_nb(trial_vars)
+            candidates.append({
+                "action": "add",
+                "var": var,
+                "vars": trial_vars,
+                "aic": trial_model.aic,
+                "model": trial_model
+            })
+
+        best = min(candidates, key=lambda x: x["aic"])
+
+        if best["aic"] < current_aic:
+            selected = best["vars"]
+            current_model = best["model"]
+            current_aic = best["aic"]
+            changed = True
+            print(f"{best['action']} {best['var']}: AIC = {current_aic:.4f}")
+
+    return current_model, selected
+""")
+
+nb_step, selected_nb_vars = stepwise_aic_nb(predictors)
+
+print(nb_step.summary())
+
+# Check whether remaining variables should be kept
+drop1_results_nb = []
+
+for var in selected_nb_vars:
+    reduced_vars = [v for v in selected_nb_vars if v != var]
+    reduced_fit = fit_nb(reduced_vars)
+
+    lrt = reduced_fit.deviance - nb_step.deviance
+    pval = 1 - chi2.cdf(lrt, df=1)
+
+    drop1_results_nb.append({
+        "variable": var,
+        "reduced_deviance": reduced_fit.deviance,
+        "reduced_AIC": reduced_fit.aic,
+        "LRT": lrt,
+        "p_value": pval
+    })
+
+drop1_table_nb = pd.DataFrame(drop1_results_nb)
+print(drop1_table_nb)
+
+# Final negative binomial model
+nb_final = nb_step
+
+print(nb_final.summary())
+print(nb_final.conf_int())
+
+# Selected variables
+print(["const"] + selected_nb_vars)
+
+# Compare with logistic and Poisson models
+model_compare_232 = pd.DataFrame({
+    "model": [
+        "2-2 logistic stepwise model",
+        "2-3.1 Poisson stepwise model",
+        "2-3.2 Negative binomial stepwise model"
+    ],
+    "AIC": [
+        final_fit.aic,
+        poisson_final.aic,
+        nb_final.aic
+    ],
+    "residual_deviance": [
+        final_fit.deviance,
+        poisson_final.deviance,
+        nb_final.deviance
+    ],
+    "residual_df": [
+        final_fit.df_resid,
+        poisson_final.df_resid,
+        nb_final.df_resid
+    ]
+})
+
+print(model_compare_232)
 ```
 :::
+
+The stepwise AIC procedure selected the same variables as the Poisson model: logRS, ERA, CG, E, and SV. The estimated coefficients, standard errors, significance levels, and residual deviance are nearly identical to those obtained from the Poisson regression model.
+
+However, the fitted negative binomial model produced a warning: Warning while fitting theta: iteration limit reached. The estimated dispersion parameter is extremely large (9,757,884), indicating that the amount of overdispersion is essentially zero. In this case, the negative binomial distribution approaches the Poisson distribution. Consequently, the negative binomial model provides almost the same fit as the Poisson model and offers no meaningful improvement.
+
+Therefore, the data do not appear to exhibit substantial overdispersion, and the Poisson regression model is adequate for modeling the number of wins.
+
+The Poisson and negative binomial models have almost identical residual deviances (62.29), while the negative binomial model has a slightly larger AIC (2876.16 vs. 2874.15), further suggesting that the negative binomial model is unnecessary for these data.
+
+The R and Python negative binomial results differ because the dispersion parameter is handled differently. In R, glm.nb() estimates the dispersion parameter and obtains a very large $\theta$, implying almost no overdispersion. Thus, the fitted negative binomial model becomes nearly identical to the Poisson model. In contrast, Python’s statsmodels GLM negative binomial model uses a default fixed value $\alpha=1$ unless specified, which assumes much stronger overdispersion. Therefore, the Python model selects different variables and gives different AIC values. To make Python closer to R, we can set $\alpha=1/\hat{\theta}$ using the value estimated from R.
 
 ## 문제 2-4
 
