@@ -890,6 +890,9 @@ Teams = (
     })
 )
 
+if "IPOuts" in Teams.columns:
+    Teams = Teams.rename({"IPOuts": "IPouts"})
+
 TeamRuns_full = (
     Teams
     .filter(
@@ -907,7 +910,7 @@ TeamRuns_full = (
         "W", "L", "WPct",
         "logRS", "logRA",
         "H", "X2B", "X3B", "HR", "BB", "SO", "CS", "HBP", "SF",
-        "ERA", "CG", "SHO", "IPOuts", "HA", "HRA", "BBA", "SOA",
+        "ERA", "CG", "SHO", "IPouts", "HA", "HRA", "BBA", "SOA",
         "E", "DP", "FP", "SV"
     ])
     .drop_nulls()
@@ -919,7 +922,7 @@ df_full = TeamRuns_full.to_pandas()
 predictors = [
     "logRS", "logRA",
     "H", "X2B", "X3B", "HR", "BB", "SO", "CS", "HBP", "SF",
-    "ERA", "CG", "SHO", "IPOuts", "HA", "HRA", "BBA", "SOA",
+    "ERA", "CG", "SHO", "IPouts", "HA", "HRA", "BBA", "SOA",
     "E", "DP", "FP", "SV"
 ]
 
@@ -1156,7 +1159,7 @@ model_compare_23
 # Full Poisson model
 predictors = [
     "logRS", "logRA", "H", "X2B", "X3B", "HR", "BB", "SO",
-    "CS", "HBP", "SF", "ERA", "CG", "SHO", "IPOuts", "HA",
+    "CS", "HBP", "SF", "ERA", "CG", "SHO", "IPouts", "HA",
     "HRA", "BBA", "SOA", "E", "DP", "FP", "SV"
 ]
 
