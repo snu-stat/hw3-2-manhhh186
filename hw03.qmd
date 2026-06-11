@@ -1518,12 +1518,185 @@ $$
 :::{.panel-tabset}
 ## R
 ```{r}
+TeamRuns_era <- Teams %>%
+  filter(
+    ((yearID >= 1994 & yearID <= 2005) |
+       (yearID >= 2010 & yearID <= 2025)),
+    yearID != 2020
+  ) %>%
+  rename(RS = R) %>%
+  mutate(
+    WPct = W / (W + L),
+    run_ratio = RS / RA,
+    log_run_ratio = log(run_ratio),
+    steroid_era = ifelse(yearID >= 1994 & yearID <= 2005, 1, 0),
+    steroid_log_run_ratio = steroid_era * log_run_ratio
+  ) %>%
+  filter(
+    RS > 0,
+    RA > 0,
+    is.finite(WPct),
+    is.finite(log_run_ratio)
+  )
+
+# Logistic model:
+# logit(WPct) = k log(RS/RA) + g I(steroid era) log(RS/RA)
+era_fit <- glm(
+  cbind(W, L) ~ 0 + log_run_ratio + steroid_log_run_ratio,
+  data = TeamRuns_era,
+  family = binomial
+)
+
+summary(era_fit)
+confint(era_fit)
+
+# Extract estimates
+era_coef <- coef(era_fit)
+era_ci <- confint(era_fit)
+
+k_hat <- era_coef["log_run_ratio"]
+g_hat <- era_coef["steroid_log_run_ratio"]
+
+k_ci <- era_ci["log_run_ratio", ]
+g_ci <- era_ci["steroid_log_run_ratio", ]
+
+cat("Estimated k for recent era =", round(k_hat, 4), "\n")
+cat(
+  "95% CI for k = (",
+  round(k_ci[1], 4), ", ",
+  round(k_ci[2], 4), ")\n",
+  sep = ""
+)
+
+cat("Estimated g =", round(g_hat, 4), "\n")
+cat(
+  "95% CI for g = (",
+  round(g_ci[1], 4), ", ",
+  round(g_ci[2], 4), ")\n",
+  sep = ""
+)
+
+cat(
+  "Estimated k for steroid era =",
+  round(k_hat + g_hat, 4),
+  "\n"
+)
+
+# Hypothesis test for g = 0
+# H0: g = 0, H1: g != 0
+summary(era_fit)$coefficients["steroid_log_run_ratio", ]
 
 ```
+
 ## Python
 ```{python}
+# Prepare data
+TeamRuns_era = (
+    Teams
+    .filter(
+        (
+            ((pl.col("yearID") >= 1994) & (pl.col("yearID") <= 2005))
+            |
+            ((pl.col("yearID") >= 2010) & (pl.col("yearID") <= 2025))
+        )
+        &
+        (pl.col("yearID") != 2020)
+    )
+    .with_columns([
+        (pl.col("W") / (pl.col("W") + pl.col("L"))).alias("WPct"),
+        (pl.col("RS") / pl.col("RA")).alias("run_ratio")
+    ])
+    .with_columns([
+        pl.col("run_ratio").log().alias("log_run_ratio"),
+        (
+            ((pl.col("yearID") >= 1994) &
+             (pl.col("yearID") <= 2005))
+            .cast(pl.Int64)
+        ).alias("steroid_era")
+    ])
+    .with_columns([
+        (
+            pl.col("steroid_era") *
+            pl.col("log_run_ratio")
+        ).alias("steroid_log_run_ratio")
+    ])
+    .filter(
+        (pl.col("RS") > 0) &
+        (pl.col("RA") > 0)
+    )
+)
+
+df_era = TeamRuns_era.to_pandas()
+
+# Logistic model:
+# logit(WPct) = k log(RS/RA) +
+#               g I(steroid era) log(RS/RA)
+
+X = df_era[
+    ["log_run_ratio",
+     "steroid_log_run_ratio"]
+]
+
+y = np.column_stack([
+    df_era["W"],
+    df_era["L"]
+])
+
+era_fit = sm.GLM(
+    y,
+    X,                     # no intercept
+    family=sm.families.Binomial()
+).fit()
+
+print(era_fit.summary())
+
+# Confidence intervals
+era_ci = era_fit.conf_int()
+print(era_ci)
+
+# Extract estimates
+k_hat = era_fit.params["log_run_ratio"]
+g_hat = era_fit.params["steroid_log_run_ratio"]
+
+k_ci = era_ci.loc["log_run_ratio"]
+g_ci = era_ci.loc["steroid_log_run_ratio"]
+
+print(
+    f"Estimated k for recent era = {k_hat:.4f}"
+)
+
+print(
+    f"95% CI for k = "
+    f"({k_ci[0]:.4f}, {k_ci[1]:.4f})"
+)
+
+print(
+    f"Estimated g = {g_hat:.4f}"
+)
+
+print(
+    f"95% CI for g = "
+    f"({g_ci[0]:.4f}, {g_ci[1]:.4f})"
+)
+
+print(
+    f"Estimated k for steroid era = "
+    f"{k_hat + g_hat:.4f}"
+)
+
+# Hypothesis test for g = 0
+# H0: g = 0
+# H1: g != 0
+
+print(
+    era_fit.summary2().tables[1]
+    .loc["steroid_log_run_ratio"]
+)
 ```
 :::
+
+Since p<0.05, we reject $H_0: g=0$ at the 5% significance level and conclude that the coefficient k differs significantly between the steroid era and the recent era. The positive estimate $\hat{g} = 0.1616$ indicates that k was larger during the steroid era than during the recent era.
+
 
 # 3부  데이터 분석 기술
 
