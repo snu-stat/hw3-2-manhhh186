@@ -785,12 +785,309 @@ the model in Q2 implies coefficients of equal magnitude and opposite sign for lo
 :::{.panel-tabset}
 ## R
 ```{r}
+TeamRuns_full <- Teams %>%
+  filter(
+    yearID >= 2010,
+    yearID <= 2025,
+    yearID != 2020
+  ) %>%
+  rename(RS = R) %>%
+  mutate(
+    WPct = W / (W + L),
+    logRS = log(RS),
+    logRA = log(RA)
+  ) %>%
+  select(
+    yearID, teamID, lgID,
+    W, L, WPct,
+    logRS, logRA,
+    H, X2B, X3B, HR, BB, SO, CS, HBP, SF,
+    ERA, CG, SHO, IPouts, HA, HRA, BBA, SOA,
+    E, DP, FP, SV
+  ) %>%
+  filter(
+    if_all(everything(), ~ !is.na(.))
+  )
 
+# Full model with intercept
+full_fit <- glm(
+  cbind(W, L) ~ logRS + logRA + H + X2B + X3B + HR + BB + SO +
+    CS + HBP + SF + ERA + CG + SHO + IPouts + HA + HRA +
+    BBA + SOA + E + DP + FP + SV,
+  data = TeamRuns_full,
+  family = binomial
+)
+
+summary(full_fit)
+AIC(full_fit)
+
+# Stepwise variable selection by AIC
+step_fit <- step(
+  full_fit,
+  direction = "both",
+  trace = TRUE
+)
+
+summary(step_fit)
+AIC(step_fit)
+
+# Check whether remaining variables should be kept
+drop1(
+  step_fit,
+  test = "Chisq"
+)
+
+# Selected variables
+names(coef(step_fit))
+
+# Final selected model result
+final_fit <- step_fit
+
+summary(final_fit)
+confint(final_fit)
+
+# Compare with Problem 2-1 model
+# logit_fit is the logistic model from 2-1 Q2:
+# cbind(W, L) ~ 0 + log_run_ratio
+
+model_compare <- data.frame(
+  model = c("2-1 model", "2-2 stepwise model"),
+  AIC = c(
+    AIC(logit_fit),
+    AIC(final_fit)
+  ),
+  residual_deviance = c(
+    deviance(logit_fit),
+    deviance(final_fit)
+  ),
+  residual_df = c(
+    df.residual(logit_fit),
+    df.residual(final_fit)
+  )
+)
+
+model_compare
+
+# Predicted WPct comparison
+TeamRuns_full <- TeamRuns_full %>%
+  mutate(
+    pred_final = predict(final_fit, type = "response")
+  )
+
+ggplot(TeamRuns_full, aes(x = pred_final, y = WPct)) +
+  geom_point(alpha = 0.5) +
+  geom_abline(
+    slope = 1,
+    intercept = 0,
+    linetype = 2,
+    color = "darkgray"
+  ) +
+  xlab("Predicted WPct from final model") +
+  ylab("Observed WPct")
 ```
+
 ## Python
 ```{python}
+# Prepare data
+Teams = (
+    pl.from_pandas(pylahman.Teams())
+    .rename({
+        "R": "RS",
+        "2B": "X2B",
+        "3B": "X3B",
+        "IPOuts": "IPouts"
+    })
+)
+
+TeamRuns_full = (
+    Teams
+    .filter(
+        (pl.col("yearID") >= 2010) &
+        (pl.col("yearID") <= 2025) &
+        (pl.col("yearID") != 2020)
+    )
+    .with_columns([
+        (pl.col("W") / (pl.col("W") + pl.col("L"))).alias("WPct"),
+        pl.col("RS").log().alias("logRS"),
+        pl.col("RA").log().alias("logRA")
+    ])
+    .select([
+        "yearID", "teamID", "lgID",
+        "W", "L", "WPct",
+        "logRS", "logRA",
+        "H", "X2B", "X3B", "HR", "BB", "SO", "CS", "HBP", "SF",
+        "ERA", "CG", "SHO", "IPouts", "HA", "HRA", "BBA", "SOA",
+        "E", "DP", "FP", "SV"
+    ])
+    .drop_nulls()
+)
+
+df_full = TeamRuns_full.to_pandas()
+
+# Full model with intercept
+predictors = [
+    "logRS", "logRA",
+    "H", "X2B", "X3B", "HR", "BB", "SO", "CS", "HBP", "SF",
+    "ERA", "CG", "SHO", "IPouts", "HA", "HRA", "BBA", "SOA",
+    "E", "DP", "FP", "SV"
+]
+
+X_full = sm.add_constant(df_full[predictors])
+y_full = np.column_stack([df_full["W"], df_full["L"]])
+
+full_fit = sm.GLM(
+    y_full,
+    X_full,
+    family=sm.families.Binomial()
+).fit()
+
+print(full_fit.summary())
+print("Full model AIC:", full_fit.aic)
+
+# Stepwise variable selection by AIC
+exec("""
+def fit_glm(selected_vars):
+    X = sm.add_constant(df_full[selected_vars])
+    model = sm.GLM(
+        y_full,
+        X,
+        family=sm.families.Binomial()
+    ).fit()
+    return model
+
+
+def stepwise_aic(all_vars):
+    selected = all_vars.copy()
+    current_model = fit_glm(selected)
+    current_aic = current_model.aic
+
+    changed = True
+
+    while changed:
+        changed = False
+        candidates = []
+
+        for var in selected:
+            trial_vars = [v for v in selected if v != var]
+            trial_model = fit_glm(trial_vars)
+            candidates.append({
+                "action": "remove",
+                "var": var,
+                "vars": trial_vars,
+                "aic": trial_model.aic,
+                "model": trial_model
+            })
+
+        remaining = [v for v in all_vars if v not in selected]
+
+        for var in remaining:
+            trial_vars = selected + [var]
+            trial_model = fit_glm(trial_vars)
+            candidates.append({
+                "action": "add",
+                "var": var,
+                "vars": trial_vars,
+                "aic": trial_model.aic,
+                "model": trial_model
+            })
+
+        best = min(candidates, key=lambda x: x["aic"])
+
+        if best["aic"] < current_aic:
+            selected = best["vars"]
+            current_model = best["model"]
+            current_aic = best["aic"]
+            changed = True
+            print(f"{best['action']} {best['var']}: AIC = {current_aic:.4f}")
+
+    return current_model, selected
+""")
+
+step_fit, selected_vars = stepwise_aic(predictors)
+
+print("\\nSelected variables:")
+print(selected_vars)
+
+print(step_fit.summary())
+print("Stepwise model AIC:", step_fit.aic)
+
+# Drop-one check
+drop1_results = []
+
+for var in selected_vars:
+    reduced_vars = [v for v in selected_vars if v != var]
+    reduced_fit = fit_glm(reduced_vars)
+
+    lrt = reduced_fit.deviance - step_fit.deviance
+    pval = 1 - chi2.cdf(lrt, df=1)
+
+    drop1_results.append({
+        "variable": var,
+        "reduced_deviance": reduced_fit.deviance,
+        "reduced_AIC": reduced_fit.aic,
+        "LRT": lrt,
+        "p_value": pval
+    })
+
+drop1_table = pd.DataFrame(drop1_results)
+
+print("\\nDrop-one results:")
+print(drop1_table)
+
+# Final selected model
+final_fit = step_fit
+
+print(final_fit.summary())
+print("\\nConfidence intervals:")
+print(final_fit.conf_int())
+
+# Compare with Problem 2-1 model
+model_compare = pd.DataFrame({
+    "model": [
+        "2-1 model",
+        "2-2 stepwise model"
+    ],
+    "AIC": [
+        logit_fit.aic,
+        final_fit.aic
+    ],
+    "residual_deviance": [
+        logit_fit.deviance,
+        final_fit.deviance
+    ],
+    "residual_df": [
+        logit_fit.df_resid,
+        final_fit.df_resid
+    ]
+})
+
+print("\\nModel comparison:")
+print(model_compare)
+
+# Predicted WPct comparison
+df_full["pred_final"] = final_fit.predict(
+    sm.add_constant(df_full[selected_vars])
+)
+
+plt.figure(figsize=(8, 6))
+plt.scatter(
+    df_full["pred_final"],
+    df_full["WPct"],
+    alpha=0.5
+)
+plt.plot(
+    [df_full["pred_final"].min(), df_full["pred_final"].max()],
+    [df_full["pred_final"].min(), df_full["pred_final"].max()],
+    linestyle="--",
+    color="gray"
+)
+plt.xlabel("Predicted WPct from final model")
+plt.ylabel("Observed WPct")
+plt.show()
 ```
 :::
+
+The stepwise AIC procedure selected logRS, logRA, CG, SHO, and SV. The most important predictors are logRS and logRA, which are highly significant and consistent with the Bill James model from Problem 2-1. Additional pitching-related variables (CG, SHO, and SV) further improve model fit. Compared with the model in Problem 2-1, the final model has a substantially lower AIC (2601.364 vs. 2665.508) and residual deviance (106.1193 vs. 180.2632), indicating a better fit while preserving the same fundamental relationship between winning percentage and run scoring/prevention.
 
 ## 문제 2-3
 
