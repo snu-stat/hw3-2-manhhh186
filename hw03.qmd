@@ -1786,6 +1786,8 @@ EXPOSE 8888
 
 ### 답안
 
+![](3-2.png)
+
 ## 문제 3-3. GitHub Pages에 Binder 링크 추가
 
 GitHub Page를 사용하여 저장소를 웹페이지로 활용하는 부분은 숙제 2에서와 같다.
