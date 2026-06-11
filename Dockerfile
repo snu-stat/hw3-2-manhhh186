@@ -25,14 +25,12 @@ RUN python3 -m venv /opt/r-reticulate && \
 
 RUN R -e "install.packages(c( \
     'reticulate', \
-    'IRkernel', \
     'NHANES', \
     'mosaic', \
     'Lahman', \
     'knitr', \
     'rmarkdown' \
-), repos='https://cloud.r-project.org')" && \
-    R -e "IRkernel::installspec(user = FALSE)"
+), repos='https://cloud.r-project.org')"
 
 ENV RETICULATE_PYTHON=/opt/r-reticulate/bin/python
 
@@ -44,6 +42,7 @@ RUN usermod -l ${NB_USER} rstudio && \
     chown -R ${NB_USER} /opt/r-reticulate /home/${NB_USER}
 
 COPY _site/hw03.ipynb /home/${NB_USER}/hw03.ipynb
+
 RUN chown ${NB_USER}:users /home/${NB_USER}/hw03.ipynb
 
 USER ${NB_USER}
