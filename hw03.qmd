@@ -15,7 +15,8 @@ mainfont: "Noto Sans Korean Light"
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, eval = TRUE, warning = FALSE, message = FALSE, fig.width=6, fig.height=4, out.width = "70%", fig.align = "center", python.reticulate = TRUE)  
 options(knitr.table.format = "html")
-reticulate::use_condaenv(condaenv = "introds", conda = "/opt/homebrew/bin/conda") # for persistency
+# reticulate::use_condaenv(condaenv = "introds", conda = "/opt/homebrew/bin/conda") # for persistency
+reticulate::use_condaenv(condaenv = "introds", conda = "/opt/anaconda3/condabin/conda")
 ```
 
 ## 지시사항
@@ -57,6 +58,34 @@ Python code
 
 #### **늦게 제출된 과제물은 받지 않는다.**
 
+## Necessary packages
+
+:::{.panel-tabset}
+## R
+```{r}
+library(tidyverse)
+library(NHANES)
+library(mosaic)
+library(dplyr)
+library(Lahman)
+library(ggplot2)
+```
+
+## Python
+```{python}
+import pandas as pd
+import statsmodels.formula.api as smf
+import polars as pl
+import numpy as np
+import pylahman
+from scipy.optimize import curve_fit
+import matplotlib.pyplot as plt
+import statsmodels.api as sm
+from scipy.stats import chi2
+```
+:::
+
+
 # 1부  교과서 연습문제
 
 ## 문제 1-1
@@ -64,6 +93,79 @@ Python code
 1. MDSR 10장 연습문제 10.6.6
 
 ### 답안
+
+::: {.panel-tabset}
+
+## R
+
+```{r}
+smoking <- NHANES %>%
+    filter(Age >= 20) %>%
+    mutate(
+        SmokeNow = ifelse(Smoke100 == "No", "No", as.character(SmokeNow)),
+        SmokeNow = factor(SmokeNow, levels = c("No", "Yes"))
+    ) %>%
+    select(
+        SmokeNow, Age, Gender, Race1, Education, MaritalStatus, HHIncome,
+        BMI, PhysActive, AlcoholDay, Diabetes, HealthGen
+    ) %>%
+    drop_na()
+
+# Check recoding
+tally(~ SmokeNow, data = smoking)
+
+# Logistic regression
+smoke_mod <- glm(
+    SmokeNow ~ .,
+    data = smoking,
+    family = binomial
+)
+
+summary(smoke_mod)
+
+write.csv(
+    NHANES,
+    "NHANES.csv",
+    row.names = FALSE
+)
+```
+
+## Python
+
+```{python}
+
+NHANES = pd.read_csv("NHANES.csv")
+
+smoking = (
+    NHANES.loc[NHANES["Age"] >= 20]
+    .assign(
+        SmokeNow=lambda df: df["SmokeNow"].where(
+            df["Smoke100"] != "No", "No"
+        )
+    )
+    [["SmokeNow", "Age", "Gender", "Race1", "Education",
+      "MaritalStatus", "HHIncome", "BMI", "PhysActive",
+      "AlcoholDay", "Diabetes", "HealthGen"]]
+    .dropna()
+)
+
+# Check recoding
+print(smoking["SmokeNow"].value_counts())
+
+# Logistic regression
+smoking["SmokeNow"] = smoking["SmokeNow"].map({"No": 0, "Yes": 1})
+
+smoke_mod = smf.logit(
+    "SmokeNow ~ Age + Gender + Race1 + Education + "
+    "MaritalStatus + HHIncome + BMI + PhysActive + "
+    "AlcoholDay + Diabetes + HealthGen",
+    data=smoking
+).fit()
+
+print(smoke_mod.summary())
+```
+
+:::
 
 
 # 2부  데이터 분석 실무
@@ -92,19 +194,603 @@ $$
 3.  2항의 모형 적합 결과에 대한 다음 세가지 진단 중 최소 두가지 이상을 수행하여 모형적합이 잘 되었는지 확인하라.
 
     i.  Residual Deviance에 대한 해석 (카이제곱 분포와 비교) 
-	  ii. Deviance residuals vs linear predictors ($\eta$) 산점도 
-	  iii.  관측된 WPct와 모형에서 예측하는 WPct를 산점도 그래프로 비교
+	ii. Deviance residuals vs linear predictors ($\eta$) 산점도 
+	iii.  관측된 WPct와 모형에서 예측하는 WPct를 산점도 그래프로 비교
 
 4.  `WPct`를 반응변수로, `log(RA)`와 `log(RS)`를 설명변수로 하는 절편이 없는 로지스틱선형회귀 모형을 적합하고 회귀계수들의 추정 결과를 a와 b항의 결과와 비교하라. (유사한 모형을 얻는지 여부 등)
 
 
 ### 답안
 
+#### 2-1.1
+
+::: {.panel-tabset}
+## R
+```{r}
+# Prepare team-level data
+TeamRuns <- Teams %>%
+  filter(
+    yearID >= 2010,
+    yearID <= 2025,
+    yearID != 2020
+  ) %>%
+  rename(RS = R) %>%
+  mutate(
+    WPct = W / (W + L),
+    run_ratio = RS / RA
+  ) %>%
+  select(yearID, teamID, lgID, WPct, run_ratio, RS, RA) %>%
+  filter(
+    !is.na(WPct),
+    !is.na(run_ratio),
+    RS > 0,
+    RA > 0
+  )
+
+# Fit the modified Bill James model
+fit <- nls(
+  WPct ~ 1 / (1 + (1 / run_ratio)^k),
+  data = TeamRuns,
+  start = list(k = 2)
+)
+
+summary(fit)
+
+# Point estimate and 95% confidence interval
+k_hat <- coef(fit)["k"]
+k_ci <- confint(fit)
+
+cat("Estimated k =", round(k_hat, 4), "\n")
+cat(
+  "95% CI = (",
+  round(k_ci[1], 4), ", ",
+  round(k_ci[2], 4), ")\n",
+  sep = ""
+)
+
+# Fitted Bill James curve
+bj_model <- function(x, k) {
+  1 / (1 + (1 / x)^k)
+}
+
+# Plot observed data and fitted curve
+ggplot(data = TeamRuns, aes(x = run_ratio, y = WPct)) +
+  geom_vline(
+    xintercept = 1,
+    color = "darkgray",
+    linetype = 2
+  ) +
+  geom_hline(
+    yintercept = 0.5,
+    color = "darkgray",
+    linetype = 2
+  ) +
+  geom_point(alpha = 0.2) +
+  stat_function(
+    fun = function(x) bj_model(x, k_hat),
+    linewidth = 2,
+    color = "blue"
+  ) +
+  xlab("Ratio of Runs Scored to Runs Allowed") +
+  ylab("Winning Percentage")
+```
+
+## Python
+```{python}
+# Load Teams data
+Teams = pl.from_pandas(pylahman.Teams())
+
+# Data preprocessing
+TeamRuns = (
+    Teams
+    .filter(
+        (pl.col("yearID") >= 2010) &
+        (pl.col("yearID") <= 2025) &
+        (pl.col("yearID") != 2020)
+    )
+    .rename({"R": "RS"})
+    .with_columns([
+        (pl.col("W") / (pl.col("W") + pl.col("L"))).alias("WPct"),
+        (pl.col("RS") / pl.col("RA")).alias("run_ratio")
+    ])
+    .select([
+        "yearID", "teamID", "lgID",
+        "WPct", "run_ratio", "RS", "RA"
+    ])
+    .filter(
+        pl.col("WPct").is_not_null() &
+        pl.col("run_ratio").is_not_null() &
+        (pl.col("RS") > 0) &
+        (pl.col("RA") > 0)
+    )
+)
+
+# Nonlinear model
+def bj_model(x, k):
+    return 1 / (1 + (1 / x) ** k)
+
+x = TeamRuns["run_ratio"].to_numpy()
+y = TeamRuns["WPct"].to_numpy()
+
+fit_result = curve_fit(
+    bj_model,
+    x,
+    y,
+    p0=[2]
+)
+
+k_hat = fit_result[0][0]
+cov = fit_result[1]
+se_k = np.sqrt(cov[0, 0])
+
+ci_lower = k_hat - 1.96 * se_k
+ci_upper = k_hat + 1.96 * se_k
+
+print(f"k_hat = {k_hat:.4f}")
+print(f"95% CI = ({ci_lower:.4f}, {ci_upper:.4f})")
+
+# Plot
+x_grid = np.linspace(x.min(), x.max(), 500)
+
+plt.figure(figsize=(8, 6))
+
+plt.axvline(x=1, color="darkgray", linestyle="--")
+plt.axhline(y=0.5, color="darkgray", linestyle="--")
+
+plt.scatter(
+    x,
+    y,
+    alpha=0.2
+)
+
+plt.plot(
+    x_grid,
+    bj_model(x_grid, k_hat),
+    linewidth=2,
+    color="blue"
+)
+
+plt.xlabel("Ratio of Runs Scored to Runs Allowed")
+plt.ylabel("Winning Percentage")
+plt.show()
+```
+:::
+
+#### 2-1.2
+
+:::{.panel-tabset}
+## R
+```{r}
+# Prepare data for logistic regression
+TeamRuns_logit <- Teams %>%
+  filter(
+    yearID >= 2010,
+    yearID <= 2025,
+    yearID != 2020
+  ) %>%
+  rename(RS = R) %>%
+  mutate(
+    WPct = W / (W + L),
+    run_ratio = RS / RA,
+    log_run_ratio = log(run_ratio)
+  ) %>%
+  filter(
+    RS > 0,
+    RA > 0,
+    is.finite(WPct),
+    is.finite(log_run_ratio)
+  )
+
+# Fit logistic regression model without intercept
+logit_fit <- glm(
+  cbind(W, L) ~ 0 + log_run_ratio,
+  data = TeamRuns_logit,
+  family = binomial
+)
+
+summary(logit_fit)
+
+# Point estimate and 95% confidence interval for beta_1
+beta1_hat <- coef(logit_fit)["log_run_ratio"]
+beta1_ci <- confint(logit_fit)
+
+cat("Estimated beta_1 =", round(beta1_hat, 4), "\n")
+cat(
+  "95% CI = (",
+  round(beta1_ci[1], 4), ", ",
+  round(beta1_ci[2], 4), ")\n",
+  sep = ""
+)
+
+# Compare with k from the nonlinear model in Question 1
+k_hat <- coef(fit)["k"]
+k_ci <- confint(fit)
+
+comparison <- data.frame(
+  model = c("Nonlinear model", "Logistic regression model"),
+  estimate = c(k_hat, beta1_hat),
+  conf_low = c(k_ci[1], beta1_ci[1]),
+  conf_high = c(k_ci[2], beta1_ci[2])
+)
+
+comparison
+```
+
+## Python
+```{python}
+# Prepare data for logistic regression
+Teams = pl.from_pandas(pylahman.Teams())
+
+TeamRuns_logit = (
+    Teams
+    .filter(
+        (pl.col("yearID") >= 2010) &
+        (pl.col("yearID") <= 2025) &
+        (pl.col("yearID") != 2020)
+    )
+    .rename({"R": "RS"})
+    .with_columns([
+        (pl.col("W") / (pl.col("W") + pl.col("L"))).alias("WPct"),
+        (pl.col("RS") / pl.col("RA")).alias("run_ratio"),
+        (pl.col("RS") / pl.col("RA")).log().alias("log_run_ratio")
+    ])
+    .filter(
+        (pl.col("RS") > 0) &
+        (pl.col("RA") > 0) &
+        pl.col("WPct").is_finite() &
+        pl.col("log_run_ratio").is_finite()
+    )
+)
+
+df = TeamRuns_logit.to_pandas()
+
+# Fit logistic regression without intercept
+# W wins out of W + L games
+X = df[["log_run_ratio"]]
+y = np.column_stack([df["W"], df["L"]])
+
+logit_fit = sm.GLM(
+    y,
+    X,
+    family=sm.families.Binomial()
+).fit()
+
+print(logit_fit.summary())
+
+# Point estimate and 95% confidence interval
+beta1_hat = logit_fit.params["log_run_ratio"]
+beta1_ci = logit_fit.conf_int().loc["log_run_ratio"]
+
+print(f"Estimated beta_1 = {beta1_hat:.4f}")
+print(f"95% CI = ({beta1_ci[0]:.4f}, {beta1_ci[1]:.4f})")
+
+# Compare with k from Question 1
+comparison = pd.DataFrame({
+    "model": [
+        "Nonlinear model",
+        "Logistic regression model"
+    ],
+    "estimate": [
+        k_hat,
+        beta1_hat
+    ],
+    "conf_low": [
+        ci_lower,
+        beta1_ci[0]
+    ],
+    "conf_high": [
+        ci_upper,
+        beta1_ci[1]
+    ]
+})
+
+print(comparison)
+```
+:::
+
+The two estimates and confidence intervals are nearly identical, confirming that $\beta_1$ has essentially the same interpretation as $k$. Both models suggest an exponent of approximately 1.75, which is lower than the classical Bill James value of 2.
+
+#### 2-1.3
+
+:::{.panel-tabset}
+## R
+```{r}
+# (i) Residual deviance compared with chi-square distribution
+res_dev <- deviance(logit_fit)
+res_df <- df.residual(logit_fit)
+res_pval <- 1 - pchisq(res_dev, df = res_df)
+
+cat("Residual deviance =", round(res_dev, 4), "\n")
+cat("Residual degrees of freedom =", res_df, "\n")
+cat("Chi-square p-value =", round(res_pval, 4), "\n")
+
+# Add diagnostic quantities
+TeamRuns_logit <- TeamRuns_logit %>%
+  mutate(
+    eta = predict(logit_fit, type = "link"),
+    dev_resid = residuals(logit_fit, type = "deviance"),
+    pred_WPct = predict(logit_fit, type = "response")
+  )
+
+# (ii) Deviance residuals vs linear predictors
+ggplot(TeamRuns_logit, aes(x = eta, y = dev_resid)) +
+  geom_point(alpha = 0.5) +
+  geom_hline(
+    yintercept = 0,
+    linetype = 2,
+    color = "darkgray"
+  ) +
+  xlab(expression(hat(eta))) +
+  ylab("Deviance residuals")
+
+# (iii) Observed WPct vs predicted WPct
+ggplot(TeamRuns_logit, aes(x = pred_WPct, y = WPct)) +
+  geom_point(alpha = 0.5) +
+  geom_abline(
+    slope = 1,
+    intercept = 0,
+    linetype = 2,
+    color = "darkgray"
+  ) +
+  xlab("Predicted WPct") +
+  ylab("Observed WPct")
+```
+
+## Python
+```{python}
+# (i) Residual deviance compared with chi-square distribution
+
+res_dev = logit_fit.deviance
+res_df = logit_fit.df_resid
+res_pval = 1 - chi2.cdf(res_dev, df=res_df)
+
+print(f"Residual deviance = {res_dev:.4f}")
+print(f"Residual degrees of freedom = {res_df:.0f}")
+print(f"Chi-square p-value = {res_pval:.4f}")
+
+# Add diagnostic quantities
+
+df["eta"] = logit_fit.predict(linear=True)
+df["pred_WPct"] = logit_fit.predict()
+
+# Deviance residuals
+df["dev_resid"] = logit_fit.resid_deviance
+
+# (ii) Deviance residuals vs linear predictors
+
+plt.figure(figsize=(8, 6))
+plt.scatter(
+    df["eta"],
+    df["dev_resid"],
+    alpha=0.5
+)
+plt.axhline(
+    y=0,
+    linestyle="--",
+    color="gray"
+)
+plt.xlabel(r"$\hat{\eta}$")
+plt.ylabel("Deviance residuals")
+plt.show()
+
+# (iii) Observed WPct vs predicted WPct
+
+plt.figure(figsize=(8, 6))
+plt.scatter(
+    df["pred_WPct"],
+    df["WPct"],
+    alpha=0.5
+)
+
+plt.plot(
+    [df["pred_WPct"].min(), df["pred_WPct"].max()],
+    [df["pred_WPct"].min(), df["pred_WPct"].max()],
+    linestyle="--",
+    color="gray"
+)
+
+plt.xlabel("Predicted WPct")
+plt.ylabel("Observed WPct")
+plt.show()
+```
+:::
+
+
+(i) The residual deviance is 180.26 with 449 degrees of freedom. Under the fitted logistic regression model, the residual deviance approximately follows a $\chi_{449}^2$ distribution. The corresponding p-value is approximately 1.00, which is much larger than 0.05. Therefore, we fail to reject the null hypothesis that the model fits the data adequately. There is no evidence of lack of fit, suggesting that the logistic regression model provides a satisfactory fit to the data.
+
+(ii) The deviance residuals are centered around zero and do not exhibit any systematic pattern, indicating that the model assumptions appear reasonable.
+
+(iii) Since the points are tightly clustered around the 45-degree line with only minor deviations, the model appears to predict winning percentage accurately.
+
+
+#### 2-1.4
+
+:::{.panel-tabset}
+## R
+```{r}
+# Prepare data
+TeamRuns_logRSRA <- Teams %>%
+  filter(
+    yearID >= 2010,
+    yearID <= 2025,
+    yearID != 2020
+  ) %>%
+  rename(RS = R) %>%
+  mutate(
+    WPct = W / (W + L),
+    log_RS = log(RS),
+    log_RA = log(RA)
+  ) %>%
+  filter(
+    RS > 0,
+    RA > 0,
+    is.finite(WPct),
+    is.finite(log_RS),
+    is.finite(log_RA)
+  )
+
+# Fit logistic regression model without intercept
+# logit(WPct) = beta_RS log(RS) + beta_RA log(RA)
+logRSRA_fit <- glm(
+  cbind(W, L) ~ 0 + log_RS + log_RA,
+  data = TeamRuns_logRSRA,
+  family = binomial
+)
+
+summary(logRSRA_fit)
+
+# Point estimates and 95% confidence intervals
+coef_logRSRA <- coef(logRSRA_fit)
+ci_logRSRA <- confint(logRSRA_fit)
+
+coef_table <- data.frame(
+  parameter = names(coef_logRSRA),
+  estimate = coef_logRSRA,
+  conf_low = ci_logRSRA[, 1],
+  conf_high = ci_logRSRA[, 2]
+)
+
+coef_table
+
+# Compare Q1, Q2, and Q4
+comparison_q4 <- data.frame(
+  parameter = c(
+    "Q1: k",
+    "Q2: beta_1",
+    "Q4: beta_RS",
+    "Q4: beta_RA"
+  ),
+  estimate = c(
+    k_hat,
+    beta1_hat,
+    coef_logRSRA["log_RS"],
+    coef_logRSRA["log_RA"]
+  ),
+  conf_low = c(
+    k_ci[1],
+    beta1_ci[1],
+    ci_logRSRA["log_RS", 1],
+    ci_logRSRA["log_RA", 1]
+  ),
+  conf_high = c(
+    k_ci[2],
+    beta1_ci[2],
+    ci_logRSRA["log_RS", 2],
+    ci_logRSRA["log_RA", 2]
+  )
+)
+
+comparison_q4
+```
+
+## Python
+```{python}
+# Prepare data
+TeamRuns_logRSRA = (
+    Teams
+    .filter(
+        (pl.col("yearID") >= 2010) &
+        (pl.col("yearID") <= 2025) &
+        (pl.col("yearID") != 2020)
+    )
+    .rename({"R": "RS"})
+    .with_columns([
+        (pl.col("W") / (pl.col("W") + pl.col("L"))).alias("WPct"),
+        pl.col("RS").log().alias("log_RS"),
+        pl.col("RA").log().alias("log_RA")
+    ])
+    .filter(
+        (pl.col("RS") > 0) &
+        (pl.col("RA") > 0) &
+        pl.col("WPct").is_finite() &
+        pl.col("log_RS").is_finite() &
+        pl.col("log_RA").is_finite()
+    )
+)
+
+df_q4 = TeamRuns_logRSRA.to_pandas()
+
+# Fit logistic regression model without intercept
+# logit(WPct) = beta_RS log(RS) + beta_RA log(RA)
+
+X = df_q4[["log_RS", "log_RA"]]
+y = np.column_stack([df_q4["W"], df_q4["L"]])
+
+logRSRA_fit = sm.GLM(
+    y,
+    X,
+    family=sm.families.Binomial()
+).fit()
+
+print(logRSRA_fit.summary())
+
+# Point estimates and 95% confidence intervals
+coef_logRSRA = logRSRA_fit.params
+ci_logRSRA = logRSRA_fit.conf_int()
+
+coef_table = pd.DataFrame({
+    "parameter": coef_logRSRA.index,
+    "estimate": coef_logRSRA.values,
+    "conf_low": ci_logRSRA[0].values,
+    "conf_high": ci_logRSRA[1].values
+})
+
+print("\nCoefficient estimates:")
+print(coef_table)
+
+comparison_q4 = pd.DataFrame({
+    "parameter": [
+        "Q1: k",
+        "Q2: beta_1",
+        "Q4: beta_RS",
+        "Q4: beta_RA"
+    ],
+    "estimate": [
+        k_hat,
+        beta1_hat,
+        coef_logRSRA["log_RS"],
+        coef_logRSRA["log_RA"]
+    ],
+    "conf_low": [
+        ci_lower,
+        beta1_ci[0],
+        ci_logRSRA.loc["log_RS", 0],
+        ci_logRSRA.loc["log_RA", 0]
+    ],
+    "conf_high": [
+        ci_upper,
+        beta1_ci[1],
+        ci_logRSRA.loc["log_RS", 1],
+        ci_logRSRA.loc["log_RA", 1]
+    ]
+})
+
+print("\nComparison of Q1, Q2, and Q4:")
+print(comparison_q4)
+```
+:::
+
+The fitted model uses log(RS) and log(RA) separately as predictors. Since
+
+$$ \log(RS/RA)=\log(RS)-\log(RA), $$
+
+the model in Q2 implies coefficients of equal magnitude and opposite sign for log(RS) and log(RA). The estimated coefficient for log(RS) is close to the estimates of k from Q1 and $\beta_1$ from Q2, while the coefficient for log(RA) is approximately their negative. Therefore, the model in Q4 yields essentially the same relationship between winning percentage and the ratio of runs scored to runs allowed as the models in Q1, Q2. This suggests that the three models are largely equivalent representations of the same underlying relationship.
+
 ## 문제 2-2
 
 `WPct`를 반응변수로, `logRS`, `logRA`, `H`, `X2B`, `X3B`, `HR`, `BB`, `SO`, `CS`, `HBP`, `SF`, `ERA`, `CG`, `SHO`, `IPouts`, `HA`, `HRA`, `BBA`, `SOA`, `E`, `DP`, `FP`, `SV`를 설명변수로 하는 절편항이 있는 로지스틱 회귀 모형을 적합하고 AIC를 기준으로 하는 단계별(stepwise) 변수선택을 적용하라. 변수선택 후 남은 변수들을 모두 모형에 남길지 일부를 제거할지 다시 판단하라. 최종적으로 선택된 모형을 문제1의 모형과 비교하라. 
 
 ### 답안
+
+:::{.panel-tabset}
+## R
+```{r}
+
+```
+## Python
+```{python}
+```
+:::
 
 ## 문제 2-3
 
@@ -113,6 +799,30 @@ $$
 2.  `W`를 반응변수로 하여 문제2의 분석을 실시하되 음이항 회귀모형을 사용하라. 모형 적합 시 오류가 발생하면 이유를 파악해서 보고하라.
 
 ### 답안
+
+#### 2-3.1
+
+:::{.panel-tabset}
+## R
+```{r}
+
+```
+## Python
+```{python}
+```
+:::
+
+#### 2-3.2
+
+:::{.panel-tabset}
+## R
+```{r}
+
+```
+## Python
+```{python}
+```
+:::
 
 ## 문제 2-4
 
@@ -126,6 +836,16 @@ $$
 
 
 ### 답안
+
+:::{.panel-tabset}
+## R
+```{r}
+
+```
+## Python
+```{python}
+```
+:::
 
 # 3부  데이터 분석 기술
 
