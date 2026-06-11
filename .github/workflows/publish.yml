@@ -72,12 +72,11 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./_site
           publish_branch: gh-pages
-          
+
       - name: Create ipynb for Binder
         run: |
           export RETICULATE_PYTHON=$(which python)
           quarto render hw03.qmd --to ipynb
-          cp hw03.ipynb _site/hw03.ipynb
         shell: bash -l {0}
 
       - name: Log in to GitHub Container Registry
