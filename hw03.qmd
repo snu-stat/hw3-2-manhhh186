@@ -1760,6 +1760,8 @@ EXPOSE 8888
 
 ### 답안
 
+![](3-1.png)
+
 ## 문제 3-2. GitHub Actions 워크플로우 수정
 
 숙제 2에서 만들었던 `publish.yml`을 수정하여 기존의 배포 단계 끝에 Docker 컨테이너 이미지를 빌드하고 Github Container Registry (GHCR)에 푸시하는 단계를 추가한다.
