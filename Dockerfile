@@ -16,45 +16,27 @@ RUN apt-get update && apt-get install -y \
 RUN python3 -m venv /opt/r-reticulate && \
     /opt/r-reticulate/bin/pip install --upgrade pip && \
     /opt/r-reticulate/bin/pip install \
-        numpy \
-        pandas \
-        scipy \
-        matplotlib \
-        statsmodels \
-        polars \
-        pylahman \
-        jupyter \
-        notebook
+        numpy pandas scipy matplotlib statsmodels \
+        polars pylahman jupyter notebook
 
 # R packages
-RUN R -e "install.packages(c( \
-    'reticulate', \
-    'NHANES', \
-    'mosaic', \
-    'Lahman', \
-    'knitr', \
-    'rmarkdown' \
-), repos='https://cloud.r-project.org')"
+RUN R -e "install.packages(c('reticulate','NHANES','mosaic','Lahman','knitr','rmarkdown'), repos='https://cloud.r-project.org')"
 
-# reticulate Python path
 ENV RETICULATE_PYTHON=/opt/r-reticulate/bin/python
+# CRITICAL: make jupyter findable -- Binder runs `jupyter notebook` itself
+ENV PATH="/opt/r-reticulate/bin:${PATH}"
 
-# Binder user
+# Binder user (UID must be 1000)
 ENV NB_USER=jovyan
 ENV NB_UID=1000
+ENV HOME=/home/${NB_USER}
 
 RUN usermod -l ${NB_USER} rstudio && \
     usermod -d /home/${NB_USER} -m ${NB_USER} && \
-    chown -R ${NB_USER} /opt/r-reticulate /home/${NB_USER}
+    chown -R ${NB_UID} /opt/r-reticulate /home/${NB_USER}
 
-# Notebook
 COPY hw03.ipynb /home/${NB_USER}/hw03.ipynb
-
-RUN chown ${NB_USER}:users /home/${NB_USER}/hw03.ipynb
+RUN chown ${NB_UID} /home/${NB_USER}/hw03.ipynb
 
 USER ${NB_USER}
 WORKDIR /home/${NB_USER}
-
-EXPOSE 8888
-
-CMD ["jupyter", "notebook", "--ip=0.0.0.0", "--port=8888", "--no-browser", "--NotebookApp.token=''"]
