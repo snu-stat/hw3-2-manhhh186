@@ -94,6 +94,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Copy ipynb to repository root
+        run: |
+          cp _site/hw03.ipynb hw03.ipynb
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:

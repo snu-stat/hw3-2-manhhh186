@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y \
     python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
+# Python environment
 RUN python3 -m venv /opt/r-reticulate && \
     /opt/r-reticulate/bin/pip install --upgrade pip && \
     /opt/r-reticulate/bin/pip install \
@@ -23,6 +24,7 @@ RUN python3 -m venv /opt/r-reticulate && \
         polars \
         pylahman
 
+# R packages
 RUN R -e "install.packages(c( \
     'reticulate', \
     'NHANES', \
@@ -34,6 +36,7 @@ RUN R -e "install.packages(c( \
 
 ENV RETICULATE_PYTHON=/opt/r-reticulate/bin/python
 
+# Binder user
 ENV NB_USER=jovyan
 ENV NB_UID=1000
 
@@ -41,6 +44,9 @@ RUN usermod -l ${NB_USER} rstudio && \
     usermod -d /home/${NB_USER} -m ${NB_USER} && \
     chown -R ${NB_USER} /opt/r-reticulate /home/${NB_USER}
 
+# IMPORTANT:
+# Binder builds from gh-pages where hw03.ipynb is at the repo root.
+# GitHub Actions should copy _site/hw03.ipynb -> hw03.ipynb before docker build.
 COPY hw03.ipynb /home/${NB_USER}/hw03.ipynb
 
 RUN chown ${NB_USER}:users /home/${NB_USER}/hw03.ipynb
