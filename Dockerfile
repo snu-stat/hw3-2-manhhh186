@@ -41,7 +41,7 @@ RUN usermod -l ${NB_USER} rstudio && \
     usermod -d /home/${NB_USER} -m ${NB_USER} && \
     chown -R ${NB_USER} /opt/r-reticulate /home/${NB_USER}
 
-COPY _site/hw03.ipynb /home/${NB_USER}/hw03.ipynb
+COPY hw03.ipynb /home/${NB_USER}/hw03.ipynb
 
 RUN chown ${NB_USER}:users /home/${NB_USER}/hw03.ipynb
 
