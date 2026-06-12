@@ -22,7 +22,9 @@ RUN python3 -m venv /opt/r-reticulate && \
         matplotlib \
         statsmodels \
         polars \
-        pylahman
+        pylahman \
+        jupyter \
+        notebook
 
 # R packages
 RUN R -e "install.packages(c( \
@@ -34,6 +36,7 @@ RUN R -e "install.packages(c( \
     'rmarkdown' \
 ), repos='https://cloud.r-project.org')"
 
+# reticulate Python path
 ENV RETICULATE_PYTHON=/opt/r-reticulate/bin/python
 
 # Binder user
@@ -44,9 +47,7 @@ RUN usermod -l ${NB_USER} rstudio && \
     usermod -d /home/${NB_USER} -m ${NB_USER} && \
     chown -R ${NB_USER} /opt/r-reticulate /home/${NB_USER}
 
-# IMPORTANT:
-# Binder builds from gh-pages where hw03.ipynb is at the repo root.
-# GitHub Actions should copy _site/hw03.ipynb -> hw03.ipynb before docker build.
+# Notebook
 COPY hw03.ipynb /home/${NB_USER}/hw03.ipynb
 
 RUN chown ${NB_USER}:users /home/${NB_USER}/hw03.ipynb
@@ -55,3 +56,5 @@ USER ${NB_USER}
 WORKDIR /home/${NB_USER}
 
 EXPOSE 8888
+
+CMD ["jupyter", "notebook", "--ip=0.0.0.0", "--port=8888", "--no-browser", "--NotebookApp.token=''"]

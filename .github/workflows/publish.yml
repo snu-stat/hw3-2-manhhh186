@@ -76,7 +76,7 @@ jobs:
           quarto render hw03.qmd --to ipynb
         shell: bash -l {0}
 
-      - name: Copy Dockerfile to site
+      - name: Copy Binder files to site
         run: |
           cp Dockerfile _site/Dockerfile
 
