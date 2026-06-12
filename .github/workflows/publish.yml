@@ -1,14 +1,17 @@
 name: Quarto Publish (R & Custom Packages)
+
 on:
   push:
     branches: [ main ]
-    
+
 jobs:
   build-deploy:
     runs-on: ubuntu-latest
+
     permissions:
       contents: write
       packages: write
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -60,24 +63,29 @@ jobs:
 
       - name: Prepare README as Index
         run: cp README.md index.md
-          
+
       - name: Render Quarto
         run: |
           export RETICULATE_PYTHON=$(which python)
           quarto render
         shell: bash -l {0}
-      - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./_site
-          publish_branch: gh-pages
 
       - name: Create ipynb for Binder
         run: |
           export RETICULATE_PYTHON=$(which python)
           quarto render hw03.qmd --to ipynb
         shell: bash -l {0}
+
+      - name: Copy Dockerfile to site
+        run: |
+          cp Dockerfile _site/Dockerfile
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./_site
+          publish_branch: gh-pages
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
